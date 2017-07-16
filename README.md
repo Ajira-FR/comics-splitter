@@ -17,5 +17,11 @@ This is an example with 2 manga's pages.
 
 **Ou** (The red polygon show the cut area) :
 
-![manga1cut](https://img4.hostingpics.net/pics/983453draw2200.png)
+![manga1cut](https://img4.hostingpics.net/pics/783604draw2100.png)
 ![manga2cut](https://img4.hostingpics.net/pics/812133draw2300.png)
+
+## TODO:
+* add vertical split
+* add option in command line
+* improve speed of diagonal cut !
+* add black (or other color) border support
