@@ -6,7 +6,14 @@ Comics Splitter is a Python script that cut comic strip or manga page in panels.
 * Pillow
 
 ## Usage
-`python3 comics_splitter.py -i <inputDir> -o <outputDir>`
+```python3 comics_splitter.py -i <inputDir> -o <outputDir>
+
+Options:
+    -r, --rotate : enable rotation to always have a portrait page (very usefull on E-reader)
+    -d, --diago : (beta feature!!) enable diagonal split but overlong processing
+    -s, --sort : smart sort on files name (Windows sort)
+    -h, --help : print help
+```
 
 ## Example
 This is an example with 2 manga's pages.
