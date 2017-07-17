@@ -7,7 +7,13 @@ from PIL import Image, ImageDraw
 
 def print_help():
     print('Usage : comics_splitter.py -i <inputDir> -o <outputDir>')
-    exit(2)
+    print("""Options:
+    -r, --rotate : enable rotation to always have a portrait page (very usefull on E-reader)
+    -d, --diago : (beta feature!!) enable diagonal split but overlong processing
+    -s, --sort : smart sort on files name (Windows sort)
+    -h, --help : print help
+    """)
+    exit(1)
 
 
 def get_line(start, end, imageGrey, px, tolerance):
@@ -113,33 +119,62 @@ def search_diagonale(start, end, imageGrey, tolerance):
     return True
 
 
-def cut_horizontal(image, cutY, rotate=True):
-    sizeX, sizeY = image.size
+def cut_panels(imageColor, polygons, rotate=False):
+    sizeX, sizeY = imageColor.size
     part = []
     imagesOut = []
 
-    if len(cutY) == 0:
+    if len(polygons) == 0:
         if rotate and sizeX > sizeY:
-            image = image.rotate(270, expand=True)
-            print(imagesOut)
+            image = imageColor.rotate(270, expand=True)
             print("Rotation !")
         imagesOut.append(image)
-        #image.save("{}/{}_{:02}.{}".format(outputDir, page, 0, ext))
-        return imagesOut
+    else:
+        for polygon in polygons:
+            x0, y0 = polygon[0]
+            x1, y1 = polygon[1]
+            x2, y2 = polygon[2]
+            x3, y3 = polygon[3]
 
-    for y0, y1 in cutY:
-        box = (0, y0, sizeX, y1)
-        part.append(image.crop(box))
-    num = 0
-    for im in part:
-        num += 1
-        sizeX, sizeY = im.size
-        if rotate and sizeX > sizeY:
-            im = im.rotate(270, expand=True)
-            print("Rotation !")
-        imagesOut.append(im)
-        #im.save("{}/{}_{:02}.{}".format(outputDir, page, num, ext))
-        return imagesOut
+            diago = False
+            if y0 == y1:
+                yUp = y0
+            elif y0 > y1:
+                yUp = y1
+                diago = True
+            else:
+                yUp = y0
+                diago = True
+
+            if y2 == y3:
+                yDown = y2
+            elif y2 > y3:
+                yDown = y2
+                diago = True
+            else:
+                yDown = y3
+                diago = True
+
+            box = (x0, yUp, x1, yDown)
+
+            if diago:
+                copy = imageColor.copy()
+                imageDraw = ImageDraw.Draw(copy)
+                imageDraw.polygon([(0, 0), (sizeX, 0), (sizeX, y1 - 1), (0, y0 - 1)], outline="white", fill="white")
+                imageDraw.polygon([(0, y3 + 1), (sizeX, y2 + 1), (sizeX, sizeY), (0, sizeY)], outline="white",
+                                  fill="white")
+                temp = copy.crop(box)
+                del imageDraw
+            else:
+                temp = imageColor.crop(box)
+
+            if rotate:
+                if x1 - x0 > yDown - yUp:
+                    temp = temp.rotate(270, expand=True)
+                    print("Rotation !")
+            imagesOut.append(temp)
+
+    return imagesOut
 
 def regroup(squareY, miniCaseHeight):
     i = 0
@@ -257,7 +292,7 @@ def draw_search_horizontal(imageGrey, imageColor, name, tolerance=10, ext="png",
 
     imageColor.save("D:\out/debug_{}.{}".format(name, ext))
 
-def search_horizontal(imageGrey, tolerance, miniWhiteBorder, angle=200, diago=True):
+def search_horizontal(imageGrey, tolerance, miniWhiteBorder, diago, angle=200):
     sizeX, sizeY = imageGrey.size
     cutY = []
     startSquare = False
@@ -340,9 +375,9 @@ def search_horizontal(imageGrey, tolerance, miniWhiteBorder, angle=200, diago=Tr
 
     return cutY
 
-def search_split(imageGrey, verticalSplit=False, tolerance=10, miniWhiteBorder=3, miniCaseHeight=100):
+def search_split(imageGrey, diago=False, verticalSplit=False, tolerance=10, miniWhiteBorder=3, miniCaseHeight=100):
     case2split = []
-    horiSplit = search_horizontal(imageGrey, tolerance, miniWhiteBorder)
+    horiSplit = search_horizontal(imageGrey, tolerance, miniWhiteBorder, diago)
     print(horiSplit)
     #horiSplit = regroup(horiSplit, miniCaseHeight)
     #print(horiSplit)
@@ -419,8 +454,10 @@ def main(argv):
     inputDir = ''
     outputDir = ''
     sort = False
+    diago = False
+    rotate = False
     try:
-        opts, args = getopt.getopt(argv,"hi:o:s",["help", "idir=", "odir=", "sort"])
+        opts, args = getopt.getopt(argv,"hi:o:sdr",["help", "idir=", "odir=", "sort", "diago", "rotate"])
     except getopt.GetoptError:
         print_help()
 
@@ -431,6 +468,10 @@ def main(argv):
             outputDir = arg
         elif opt in ("-s", "--sort"):
             sort = True
+        elif opt in ("-d", "--diago"):
+            diago = True
+        elif opt in ("-r", "--rotate"):
+            rotate = True
         else:
             print_help()
 
@@ -460,28 +501,10 @@ def main(argv):
             im = Image.open("{}/{}".format(inputDir, file))
             imGrey = im.convert("L")
 
-            #draw_search_horizontal(imGrey, im, file, tolerance=10, ext="png")
-            #continue
+            case2split = search_split(imGrey, diago=diago)
+            #imDraw = draw_case(case2split, im)
 
-            """squareY = search_horizontal(imGrey)
-            print("after search : {}".format(squareY))
-
-            squareY = regroup(squareY)
-            print("after regroup : {}".format(squareY))"""
-
-            case2split = search_split(imGrey)
-            imDraw = draw_case(case2split, im)
-
-            num = 0
-            imDraw.save("{}/draw2_{}_{:02}.{}".format(outputDir, page, num, "png"))
-            #draw_search_horizontal(imGrey, im, "color_" + file, tolerance=10, ext="png")
-            continue
-
-
-
-            im2sav = []
-            for imc in imagesCut:
-                im2sav.append(remove_borders(imc))
+            im2sav = cut_panels(im, case2split, rotate)
             num = 0
             for i2s in im2sav:
                 i2s.save("{}/{}_{:02}.{}".format(outputDir, page, num, "png"))
