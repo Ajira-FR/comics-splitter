@@ -4,74 +4,21 @@ import os
 import re
 
 from PIL import Image, ImageDraw
+import time
+
+DEBUG = True
+STEP = 5
 
 def print_help():
     print('Usage : comics_splitter.py -i <inputDir> -o <outputDir>')
     print("""Options:
     -r, --rotate : enable rotation to always have a portrait page (very usefull on E-reader)
-    -d, --diago : (beta feature!!) enable diagonal split but overlong processing
+    -d, --diago : enable diagonal split (longer processing)
     -s, --sort : smart sort on files name (Windows sort)
     -h, --help : print help
+    --draw : only draw cut area
     """)
     exit(1)
-
-
-def get_line(start, end, imageGrey, px, tolerance):
-    """Bresenham's Line Algorithm
-    Produces a list of tuples from start and end
-
-    points1 = get_line((0, 0), (3, 4))
-    points2 = get_line((3, 4), (0, 0))
-    assert(set(points1) == set(points2))
-    print points1
-    [(0, 0), (1, 1), (1, 2), (2, 3), (3, 4)]
-    print points2
-    [(3, 4), (2, 3), (1, 2), (1, 1), (0, 0)]
-    """
-    # Setup initial conditions
-    x1, y1 = start
-    x2, y2 = end
-    dx = x2 - x1
-    dy = y2 - y1
-
-    # Determine how steep the line is
-    is_steep = abs(dy) > abs(dx)
-
-    # Rotate line
-    if is_steep:
-        x1, y1 = y1, x1
-        x2, y2 = y2, x2
-
-    # Recalculate differentials
-    dx = x2 - x1
-    dy = y2 - y1
-
-    # Calculate error
-    error = int(dx / 2.0)
-    ystep = 1 if y1 < y2 else -1
-
-    # Iterate over bounding box generating points between start and end
-    y = y1
-    points = []
-
-    stop = 0
-
-    for x in range(x1, x2 + 1):
-        coord = (y, x) if is_steep else (x, y)
-        if imageGrey.getpixel(coord) < 250:
-            stop += 1
-        px[coord[0], coord[1]] = (255 - (stop * stop), 0, (stop * stop))
-
-        if stop > tolerance:
-            return
-
-        points.append(coord)
-        error -= abs(dy)
-        if error < 0:
-            y += ystep
-            error += dx
-
-    return points
 
 def search_diagonale(start, end, imageGrey, tolerance):
     """Bresenham's Line Algorithm
@@ -83,41 +30,24 @@ def search_diagonale(start, end, imageGrey, tolerance):
     dx = x2 - x1
     dy = y2 - y1
 
-    # Determine how steep the line is
-    is_steep = abs(dy) > abs(dx)
-
-    # Rotate line
-    if is_steep:
-        x1, y1 = y1, x1
-        x2, y2 = y2, x2
-
-    # Recalculate differentials
-    dx = x2 - x1
-    dy = y2 - y1
-
     # Calculate error
     error = int(dx / 2.0)
     ystep = 1 if y1 < y2 else -1
 
     # Iterate over bounding box generating points between start and end
-    y = y1
     stop = 0
-
-    for x in range(x1, x2 + 1):
-        coord = (y, x) if is_steep else (x, y)
+    while x1 <= x2  and stop <= tolerance:
+        coord = (x1, y1)
         if imageGrey.getpixel(coord) < 250:
             stop += 1
 
-        if stop > tolerance:
-            return False
-
         error -= abs(dy)
         if error < 0:
-            y += ystep
+            y1 += ystep
             error += dx
+        x1 += 1
 
-    return True
-
+    return x1, stop
 
 def cut_panels(imageColor, polygons, rotate=False):
     sizeX, sizeY = imageColor.size
@@ -127,7 +57,8 @@ def cut_panels(imageColor, polygons, rotate=False):
     if len(polygons) == 0:
         if rotate and sizeX > sizeY:
             image = imageColor.rotate(270, expand=True)
-            print("Rotation !")
+            if DEBUG:
+                print("Rotation !")
         imagesOut.append(image)
     else:
         for polygon in polygons:
@@ -171,7 +102,8 @@ def cut_panels(imageColor, polygons, rotate=False):
             if rotate:
                 if x1 - x0 > yDown - yUp:
                     temp = temp.rotate(270, expand=True)
-                    print("Rotation !")
+                    if DEBUG:
+                        print("Rotation !")
             imagesOut.append(temp)
 
     return imagesOut
@@ -185,12 +117,14 @@ def regroup(squareY, miniCaseHeight):
                 squareY[i][1] = squareY[i+1][1]
                 squareY.pop(i+1)
                 i = 0
-                print("Regroupage !!")
+                if DEBUG:
+                    print("Regroupage !!")
             elif i > 0 and i+1 == len(squareY):
                 squareY[i-1][1] = squareY[i][1]
                 squareY.pop(i)
                 i=0
-                print("Regroupage !!")
+                if DEBUG:
+                    print("Regroupage !!")
             elif i > 0 and i+1 < len(squareY):
                 y00, y01 = squareY[i - 1]
                 y10, y11 = squareY[i + 1]
@@ -201,7 +135,8 @@ def regroup(squareY, miniCaseHeight):
                     squareY[i - 1][1] = squareY[i][1]
                     squareY.pop(i)
                 i = 0
-                print("Regroupage !!")
+                if DEBUG:
+                    print("Regroupage !!")
             else:
                 i += 1
         else:
@@ -209,45 +144,34 @@ def regroup(squareY, miniCaseHeight):
 
     return squareY
 
-def search_left_border(imageGrey, tolerance):
+def search_left_right_borders(imageGrey, tolerance):
     sizeX, sizeY = imageGrey.size
-    x = 0
+    x_left = 0
+    x_right = sizeX
     stop = 0
-    while x < sizeX and stop <= tolerance:
+
+    while x_left < (sizeX / 3) and stop <= tolerance:
         y = 0
         stop = 0
         while y < sizeY and stop <= tolerance:
-            if imageGrey.getpixel((x, y)) < 250:
+            if imageGrey.getpixel((x_left, y)) < 250:
                 stop += 1
-            y += 1
+            y += STEP
         if stop <= tolerance:
-            x += 1
-    return x
+            x_left += 1
 
-def search_right_border(imageGrey, tolerance):
-    sizeX, sizeY = imageGrey.size
-    x = sizeX
     stop = 0
-    while x - 1 >= 0 and stop <= tolerance:
+    while x_right - 1 >= (sizeX / 3) * 2 and stop <= tolerance:
         y = 0
         stop = 0
         while y < sizeY and stop <= tolerance:
-            if imageGrey.getpixel((x - 1, y)) < 250:
+            if imageGrey.getpixel((x_right - 1, y)) < 250:
                 stop += 1
-            y += 1
+            y += STEP
         if stop <= tolerance:
-            x -= 1
-    return x
+            x_right -= 1
 
-def remove_borders(imageGrey):
-    sizeY = imageGrey.size[1]
-    x_left = search_left_border(imageGrey)
-    x_right = search_right_border(imageGrey)
-
-    print("x_left = {}, x_right = {}".format((x_left, x_right)))
-
-    box = (x_left, 0, x_right, sizeY)
-    return imageGrey.crop(box)
+    return x_left, x_right
 
 def draw_search_horizontal(imageGrey, imageColor, name, tolerance=10, ext="png", angle=200):
     sizeX, sizeY = imageGrey.size
@@ -292,149 +216,151 @@ def draw_search_horizontal(imageGrey, imageColor, name, tolerance=10, ext="png",
 
     imageColor.save("D:\out/debug_{}.{}".format(name, ext))
 
-def search_horizontal(imageGrey, tolerance, miniWhiteBorder, diago, angle=200):
+def search_horizontal(imageGrey, tolerance, y):
+    sizeX = imageGrey.size[0]
+    x = 0
+    stop = 0
+    while x < sizeX and stop <= tolerance:
+        pix = imageGrey.getpixel((x, y))
+        if pix < 250:
+            stop += 1
+        x += 1
+    return (x, stop)
+
+def search_multi_diago(y, yUp, yDown, imageGrey, tolerance):
     sizeX, sizeY = imageGrey.size
-    cutY = []
-    startSquare = False
-    yDiago = -1
-    for y in range(sizeY):
-        x = 0
+    while yUp < yDown:
+        x1, y1 = 0, y
+        x2, y2 = sizeX - 1, yUp
+        dx = x2 - x1
+        dy = y2 - y1
+
+        error = int(dx / 2.0)
+        ystep = 1 if y1 < y2 else -1
+
         stop = 0
-        while x < sizeX and stop <= tolerance:
-            pix = imageGrey.getpixel((x, y))
-
-            if pix < 250:
+        while x1 <= x2 and stop <= tolerance:
+            coord = (x1, y1)
+            if imageGrey.getpixel(coord) < 250:
                 stop += 1
-            x += 1
 
-        if startSquare:
             if stop <= tolerance:
-                print("Découpage horizontal finit à y={}".format(y))
+                error -= abs(dy)
+                if error < 0:
+                    y1 += ystep
+                    error += dx
+                x1 += 1
+
+        if stop > tolerance:
+            yy = int(round((((y1-y+1) * dx + int(dx / 2.0)) / x1)))
+            yUp = y + yy
+        else:
+            return yUp
+    return False
+
+def horizontal_cut(imageGrey, tolerance, diago, angle=200):
+    sizeX, sizeY = imageGrey.size
+    panels = []
+    startSquare = False
+    inclinaison = 0
+    lastY = 0
+
+    for y in range(0, sizeY, STEP):
+        if not startSquare: #search for begin of a panel
+            if inclinaison:
+                if search_diagonale((0, y), (sizeX - 1, min((y + inclinaison), sizeY - 1)), imageGrey, tolerance)[0] < sizeX: #find diagonal panel
+                    lastY = y + inclinaison
+                    square = [(0, y), (sizeX, lastY)]
+                    startSquare = True
+                    if DEBUG:
+                        print("Découpage diagonal débute à y0={} et y1={}".format(y, lastY))
+            else:
+                if search_horizontal(imageGrey, tolerance, y)[0] < sizeX: #find horizontal panel
+                    lastY = y
+                    square = [(0, lastY), (sizeX, lastY)]
+                    startSquare = True
+                    if DEBUG:
+                        print("Découpage horizontal débute à y={}".format(lastY))
+
+        else: #search for end of a panel
+            if y > lastY and search_horizontal(imageGrey, tolerance, y)[0] == sizeX: #find blanck line
                 square.append((sizeX, y))
                 square.append((0, y))
-                cutY.append(square)
+                panels.append(square)
                 startSquare = False
-            elif diago and x > tolerance + 5:
-                if y >= angle:
-                    yUp = y - angle
-                else:
-                    yUp = 0
-                if y < sizeY - angle:
-                    yDown = y + angle
-                else:
-                    yDown = sizeY
-                while yUp < yDown:
-                    if search_diagonale((0, y), (sizeX - 1, yUp), imageGrey, tolerance):
+                inclinaison = 0
+                lastY = y
+                if DEBUG:
+                    print("Découpage horizontal finit à y={}".format(y))
+            elif diago:
+                yUp = max(y - angle, lastY)
+                yDown = min(y + angle, sizeY - 1)
+                yUp = search_multi_diago(y, yUp, yDown, imageGrey, tolerance)
+                if yUp:
+                    startSquare = False
+                    inclinaison = yUp - y
+                    square.append((sizeX, yUp))
+                    square.append((0, y))
+                    panels.append(square)
+                    lastY = yUp
+                    if DEBUG:
                         print("Découpage diagonal finit à y0={} et y1={}".format(y, yUp))
-                        square.append((sizeX, yUp))
-                        square.append((0, y))
-                        cutY.append(square)
-                        startSquare = False
-                        break
-                    yUp += 1
-        else:
-            if stop > tolerance: #no horizontal white line
-                noWhite = False
-                if diago and x > tolerance + 5:
-                    if y >= angle:
-                        yUp = y - angle
-                    else:
-                        yUp = 0
-                    if y < sizeY - angle:
-                        yDown = y + angle
-                    else:
-                        yDown = sizeY - 1
-                    while yDown >= yUp:
-                        if search_diagonale((0, y), (sizeX - 1, yDown), imageGrey, tolerance):
-                            yDiago = yDown
-                            break
-                        yDown -= 1
-                    if yDown < yUp:
-                        noWhite = True
-                elif diago:
-                    noWhite = True
-
-                if noWhite and yDiago >= 0: # no more diago white
-                    print("Découpage diagonal débute à y0={} et y1={}".format(y - 1, yDiago))
-                    square = [(0, y - 1), (sizeX, yDiago)]
-                    startSquare = True
-                    yDiago = -1
-                elif yDiago < 0:
-                    print("Découpage horizontal débute à y={}".format(y))
-                    square = [(0, y), (sizeX, y)]
-                    startSquare = True
 
     if startSquare: #fin de page
-        print("Découpage horizontal finit à y={}".format(sizeY))
+        if DEBUG:
+            print("Découpage horizontal finit à y={}".format(sizeY))
         square.append((sizeX, sizeY))
         square.append((0, sizeY))
-        cutY.append(square)
+        panels.append(square)
 
-    if len(cutY) == 0:
+    if DEBUG and len(panels) == 0:
         print("Découpage horizontal impossible")
 
-    return cutY
+    return panels
 
-def search_split(imageGrey, diago=False, verticalSplit=False, tolerance=10, miniWhiteBorder=3, miniCaseHeight=100):
+def search_split(imageGrey, diago=False, verticalSplit=False, tolerance=10):
     case2split = []
-    horiSplit = search_horizontal(imageGrey, tolerance, miniWhiteBorder, diago)
-    print(horiSplit)
-    #horiSplit = regroup(horiSplit, miniCaseHeight)
-    #print(horiSplit)
-
     sizeX, sizeY = imageGrey.size
 
+    #tmps1 = time.clock()
+    x_left, x_right = search_left_right_borders(imageGrey, tolerance)
+    #tmps2 = time.clock()
+    #print("after search_left_border %f" % (tmps2 - tmps1))
+
+    #x_right = search_right_border(imageGrey, tolerance)
+    #tmps3 = time.clock()
+    #print("after search_right_border %f" % (tmps3 - tmps2))
+
+    if DEBUG:
+        print("x_left = {}, x_right = {}".format(x_left, x_right))
+
+    box = (x_left, 0, x_right, sizeY)
+    imageGrey = imageGrey.crop(box)
+
+    horiSplit = horizontal_cut(imageGrey, tolerance, diago)
+
+    #tmps4 = time.clock()
+    #print("after search_horizontal %f" % (tmps4 - tmps3))
+
+    if DEBUG:
+        print(horiSplit)
+
     if len(horiSplit) == 0:
-        x_left = search_left_border(imageGrey, tolerance)
-        x_right = search_right_border(imageGrey, tolerance)
-        print("x_left = {}, x_right = {}".format(x_left, x_right))
         case2split.append([(x_left, 0), (x_right, 0), (x_right, sizeY), (x_left, sizeY)])
-        return  case2split
+    else:
+        for square in horiSplit:
+            x0, y0 = square[0]
+            x1, y1 = square[1]
+            x2, y2 = square[2]
+            x3, y3 = square[3]
 
-    for square in horiSplit:
-        x0, y0 = square[0]
-        x1, y1 = square[1]
-        x2, y2 = square[2]
-        x3, y3 = square[3]
+            if verticalSplit:
+                print("#TODO")
 
-        diago = False
-        if y0 == y1:
-            yUp = y0
-        elif y0 > y1:
-            yUp = y1
-            diago = True
-        else:
-            yUp = y0
-            diago = True
+            case2split.append([(x_left, y0), (x_right, y1), (x_right, y2), (x_left, y3)])
 
-        if y2 == y3:
-            yDown = y2
-        elif y2 > y3:
-            yDown = y2
-            diago = True
-        else:
-            yDown = y3
-            diago = True
-
-        box = (0, yUp, sizeX, yDown)
-
-        if diago:
-            copy = imageGrey.copy()
-            imageDraw = ImageDraw.Draw(copy)
-            imageDraw.polygon([(0, 0), (sizeX, 0), (sizeX, y1 - 1), (0, y0 - 1)], outline="white", fill="white")
-            imageDraw.polygon([(0, y3 + 1), (sizeX, y2 + 1), (sizeX, sizeY), (0, sizeY)], outline="white", fill="white")
-            temp = copy.crop(box)
-            del imageDraw
-        else:
-            temp = imageGrey.crop(box)
-
-        if verticalSplit:
-            print("#TODO")
-
-        x_left = search_left_border(temp, tolerance)
-        x_right = search_right_border(temp, tolerance)
-        print("x_left = {}, x_right = {}".format(x_left, x_right))
-        case2split.append([(x_left, y0), (x_right, y1), (x_right, y2), (x_left, y3)])
+        #tmps444 = time.clock()
+        #print("after tot %f" % (tmps444 - tmps1))
     return case2split
 
 def draw_case(boxList, imageColor, borderWidth=3):
@@ -456,8 +382,10 @@ def main(argv):
     sort = False
     diago = False
     rotate = False
+    draw = False
     try:
-        opts, args = getopt.getopt(argv,"hi:o:sdr",["help", "idir=", "odir=", "sort", "diago", "rotate"])
+        opts, args = getopt.getopt(argv,"hi:o:sdrw",["help", "idir=", "odir=", "sort", "diago", "rotate", "draw"])
+        print(opts)
     except getopt.GetoptError:
         print_help()
 
@@ -472,6 +400,8 @@ def main(argv):
             diago = True
         elif opt in ("-r", "--rotate"):
             rotate = True
+        elif opt == "--draw":
+            draw = True
         else:
             print_help()
 
@@ -496,20 +426,35 @@ def main(argv):
 
     for file in files:
         print(os.path.splitext(file))
-        if os.path.splitext(file)[1] in [".jpg", ".png", ".jpeg"]:
+        ext = os.path.splitext(file)[1].lower()
+        if ext in [".jpg", ".png", ".jpeg"]:
             page += 1
+            tmps1 = time.clock()
             im = Image.open("{}/{}".format(inputDir, file))
+            #tmps2 = time.clock()
+            #print("after open %f"  % (tmps2 - tmps1))
             imGrey = im.convert("L")
+            #tmps3 = time.clock()
+            #print("after convert %f" % (tmps3 - tmps2))
 
             case2split = search_split(imGrey, diago=diago)
+            #tmps4 = time.clock()
+            #print("after split %f" % (tmps4 - tmps3))
             #imDraw = draw_case(case2split, im)
+            if draw:
+                im2sav = [draw_case(case2split, im)]
+            else:
+                im2sav = cut_panels(im, case2split, rotate)
+            #tmps5 = time.clock()
+            #print("after cut %f" % (tmps5 - tmps4))
 
-            im2sav = cut_panels(im, case2split, rotate)
             num = 0
             for i2s in im2sav:
-                i2s.save("{}/{}_{:02}.{}".format(outputDir, page, num, "png"))
+                i2s.save("{}/e{}_{:02}{}".format(outputDir, page, num, ext))
                 num += 1
-
+            #tmps6 = time.clock()
+            #print("after save %f" % (tmps6 - tmps5))
+            print("totale = %f" % (time.clock() - tmps1))
 
 if __name__ == "__main__":
    main(sys.argv[1:])
