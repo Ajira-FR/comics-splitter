@@ -2,7 +2,7 @@
 import sys, getopt
 import os
 import re
-
+from math import ceil
 from PIL import Image, ImageDraw
 import time
 
@@ -251,9 +251,12 @@ def search_multi_diago(y, yUp, yDown, imageGrey, tolerance):
                     error += dx
                 x1 += 1
 
-        if stop > tolerance:
-            yy = int(round((((y1-y+1) * dx + int(dx / 2.0)) / x1)))
-            yUp = y + yy
+        if stop > tolerance: #inutile de continuer la diagonale, on calcule la prochaine hauteur max (dy)
+            # dy = (y * dx + int(dx/2)) / x
+            yy = y1 - y + 1
+            ddy = ceil((dx * abs(yy) - int(dx/2)) / x1)
+            yyUp = y - ddy if yy < 0 else y + ddy
+            yUp = yyUp if yyUp > yUp else yUp + 1
         else:
             return yUp
     return False
@@ -450,7 +453,7 @@ def main(argv):
 
             num = 0
             for i2s in im2sav:
-                i2s.save("{}/e{}_{:02}{}".format(outputDir, page, num, ext))
+                i2s.save("{}/{}_{:02}{}".format(outputDir, page, num, ext))
                 num += 1
             #tmps6 = time.clock()
             #print("after save %f" % (tmps6 - tmps5))
