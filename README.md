@@ -34,3 +34,5 @@ This is an example with 2 manga's pages.
 * add option in command line
 * improve speed of diagonal cut !
 * add black (or other color) border support
+
+test
