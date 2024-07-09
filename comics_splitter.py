@@ -15,7 +15,7 @@ def print_help():
     -r, --rotate : enable rotation to always have a portrait page (very usefull on E-reader)
     -d, --diago : enable diagonal split (longer processing)
     -s, --sort : smart sort on files name (Windows sort)
-    -h, --help : print help
+    -h, --help : print this help
     --draw : only draw cut area
     """)
     exit(1)
